@@ -52,13 +52,14 @@ DATA = np.array([
     [40.00, 0, .50, .50, .015],   # 4 Qorvo DWM3001CDK
     [25.00, 0, .50, .50, .015],   # 5 LC76G
     [51.50, 0, .50, .50, .015],   # 6 SAM-M10Q
-    [20.00, 0, .25, .25, .010],   # 7 Tadiran: purchase per cell, service per pack
+    [20.00, 0, .25, .25, .010],   # 7 Tadiran TLH-5903/P: purchase per cell, service per pack
     [8.00,  0, .25, .25, .020],   # 8 Panasonic: purchase per cell, service per pack
     [100.00,0, .50, .50, .020],   # 9 Aluminum: inspect seals, cracks, corrosion
     [65.00, 0, .50, .50, .030],   # 10 PETG: inspect seals, cracks, deformation
     [15.00, 0, .25, .25, .005],   # 11 C clamp
     [12.00, 0, .25, .25, .005],   # 12 Permanent magnet
     [200.00,0, .50, .50, .020],   # 13 Energize-to-release magnet assembly
+    [17.07, 0, .25, .25, .010],   # 14 Tadiran TL-5930/S (19Ah D-cell): purchase per cell, service per pack
 ])
 
 
@@ -66,11 +67,11 @@ NAMES = [
     "PT-1000", "TMP61", "ADXL362", "SQ-ASB", "Qorvo DWM3001CDK",
     "LC76G", "SAM-M10Q", "Tadiran TLH-5903/P", "Panasonic BK120AAHA01",
     "Aluminum enclosure", "PETG enclosure", "C clamp", "Permanent magnet",
-    "Energize-to-release magnet"
+    "Energize-to-release magnet", "Tadiran TL-5930/S"
 ]
 
 
-CATEGORIES = [(0, 1), (2, 3), (4,), (5, 6), (7, 8), (9, 10), (11, 12, 13)]
+CATEGORIES = [(0, 1), (2, 3), (4,), (5, 6), (7, 8, 14), (9, 10), (11, 12, 13)]
 CAT_NAMES = [
     "Temperature Sensor", "Shock Sensor", "Indoor Location",
     "Outdoor Location", "Battery Chemistry", "Enclosure", "Attachment"
@@ -194,15 +195,16 @@ battery_service_years = min(years, 5) if include_year5_replacement else years
 battery_service_hours = battery_service_years * 365 * 24
 
 
-# Usable battery capacity inputs (Tadiran vs Panasonic)
+# Usable battery capacity inputs (Tadiran TLH-5903/P, Panasonic, Tadiran TL-5930/S)
 tadiran_frac = 0.70
 panasonic_frac = panasonic_frac_input if allow_panasonic else 0.0
-usable_fraction = np.array([tadiran_frac, panasonic_frac])
-battery_allowed = np.array([1.0, float(allow_panasonic)])
+usable_fraction = np.array([tadiran_frac, panasonic_frac, 0.70])
+battery_allowed = np.array([1.0, float(allow_panasonic), 1.0])
 
 
-nominal_cell_wh = np.array([3.6 * 2.0, 1.2 * 1.2])  # Tadiran, Panasonic cell Wh
-pack_hardware_cost = np.array([0.0, 0.0])
+# Nominal cell Wh: Tadiran AA (3.6V * 2.0Ah), Panasonic AA (1.2V * 1.2Ah), Tadiran D (3.6V * 19.0Ah)
+nominal_cell_wh = np.array([3.6 * 2.0, 1.2 * 1.2, 3.6 * 19.0])
+pack_hardware_cost = np.array([0.0, 0.0, 0.0])
 
 
 # Calculated duty cycle fractions
@@ -218,9 +220,9 @@ if any(fraction > 1 for fraction in (temp_fraction, uwb_fraction, gnss_fraction)
 release_active_fraction = (RELEASES_PER_YEAR * RELEASE_SECONDS) / (365 * 24 * 3600)
 
 
-# Component power draw vector (14 components)
+# Component power draw vector (15 components)
 lc_on, lc_idle = LC_MODES[lc76g_variant]
-comp_power = np.zeros(14)
+comp_power = np.zeros(15)
 comp_power[0:2] = 0.33 * temp_fraction
 comp_power[2] = 3.3 * .0027
 comp_power[3] = 3.3 * .0011
@@ -241,24 +243,29 @@ shared_inspection_cost = inspection_visits * labour * shared_inspection_minutes 
 
 
 initial_cost = purchase.copy()
-initial_cost[7:9] = pack_hardware_cost
+initial_cost[[7, 8, 14]] = pack_hardware_cost
 inspections = inspection_visits * labour * inspection_minutes / 60.0
 replacement = initial_cost + labour * replacement_hours
 scheduled = scheduled_replacement_count * replacement
 repairs = events * (replacement + labour * diagnosis_hours)
 
 
-cell_initial = purchase[7:9].copy()
+cell_initial = purchase[[7, 8, 14]].copy()
 cell_maintenance = scheduled_replacement_count * cell_initial
-cell_repairs = events[7:9] * cell_initial
+cell_repairs = events[[7, 8, 14]] * cell_initial
 
 
-rpn = np.zeros(14)
-rpn[7] = 480  # Tadiran
-rpn[8] = 555  # Panasonic
+rpn = np.zeros(15)
+rpn[7] = 480   # Tadiran TLH-5903/P
+rpn[8] = 555   # Panasonic
+rpn[14] = 480  # Tadiran TL-5930/S
 
 
 usable_energy = nominal_cell_wh * usable_fraction * conversion_efficiency
+
+
+# Battery mapping lookup for selected index to battery array index (0, 1, 2)
+BATT_MAP = {7: 0, 8: 1, 14: 2}
 
 
 # --- Application Layout ---
@@ -283,7 +290,7 @@ with col_left:
         
         for choice in product(*CATEGORIES):
             i = np.array(choice)
-            b = choice[4] - 7
+            b = BATT_MAP[choice[4]]
             if not battery_allowed[b]:
                 continue
             
@@ -320,15 +327,15 @@ with col_left:
             opt_indices, opt_b, opt_n, *_ = best_combo
             for cat_name, idx_val in zip(CAT_NAMES, opt_indices):
                 selected_indices[cat_name] = idx_val
-                count_str = f" x{opt_n} cells" if idx_val in (7, 8) else ""
+                count_str = f" x{opt_n} cells" if idx_val in (7, 8, 14) else ""
                 st.markdown(f"**{cat_name}:** `{NAMES[idx_val]}{count_str}`")
-            st.caption(f"Feasible configurations evaluated: {feasible_count} of 96")
+            st.caption(f"Feasible configurations evaluated: {feasible_count} combinations")
 
 
 # --- Selected Configuration Evaluation ---
 if len(selected_indices) == len(CATEGORIES):
     chosen_idx = np.array(list(selected_indices.values()))
-    b_type = chosen_idx[4] - 7  # 0 for Tadiran, 1 for Panasonic
+    b_type = BATT_MAP[chosen_idx[4]]
     
     avg_load_mW = shared_power + comp_power[chosen_idx].sum()
     avg_battery_output_mW = avg_load_mW / conversion_efficiency
@@ -388,7 +395,7 @@ if len(selected_indices) == len(CATEGORIES):
     
     rows = []
     for cat_name, idx_val in selected_indices.items():
-        is_batt = idx_val in (7, 8)
+        is_batt = idx_val in (7, 8, 14)
         cnt = required_cells if is_batt else 1
         
         # Include fixed pack hardware/labor AND cell purchases so rows reconcile.
