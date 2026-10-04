@@ -1,100 +1,54 @@
-"""THE BOX: component and battery optimization dashboard.
-
-Windows installation: python -m pip install streamlit numpy
-Windows launch: python -m streamlit run economic_model_generalmatter.py
-
-Annual failure probabilities are planning assumptions.
-Expected failure replacements = years * annual probability under an annual
-Bernoulli model (at most one modeled failure replacement per component per year).
-Scheduled replacements are separate. This is not a physical limit on failures.
-Battery replacement counts refer to packs; purchases include all cells per pack.
-"""
 import streamlit as st
 import numpy as np
 import pandas as pd
 from itertools import product
 
-
 # --- Page Configuration ---
 st.set_page_config(
-    page_title="THE BOX — Integrated Component & Battery Pack Optimizer",
-    page_icon="🔋",
+    page_title="General Matter Economic Model",
     layout="wide"
 )
 
-
-st.title("🔋 THE BOX — Component & Battery Pack Optimizer")
+st.title("General Matter Economic Model")
 st.caption("Five-year component, battery cell count, maintenance, duty cycle, and FMEA optimization dashboard.")
 
-
-# --- Fixed Operational Assumptions ---
-RELEASES_PER_YEAR = 2.0  # Fixed assumption: 2 releases per year
-RELEASE_SECONDS = 5.0     # Fixed assumption: 5 seconds per release event
-
-
-# --- Default Component Data & Power Configurations ---
-LC_MODES = {
-    "PA": (3.3 * (9.7 + .127), 3.3 * .013),
-    "AB": (3.3 * (33.0 + .130), 3.3 * .013),
-    "PB": (1.8 * (15.6 + .122), 1.8 * .013)
-}
-
-
-# Columns: purchase dollars, inspection minutes PER VISIT, replacement hours,
-# diagnosis hours, annual probability of one failure replacement.
-# Inspection time per visit for each box is set globally via sidebar controls.
-# Failure probabilities are unchanged estimates from the supplied model.
-DATA = np.array([
-    [19.99, 0, .50, .25, .010],   # 0 PT-1000
-    [5.55,  0, .50, .25, .015],   # 1 TMP61
-    [19.95, 0, .50, .25, .020],   # 2 ADXL362
-    [20.00, 0, .50, .25, .010],   # 3 SQ-ASB
-    [40.00, 0, .50, .50, .015],   # 4 Qorvo DWM3001CDK
-    [25.00, 0, .50, .50, .015],   # 5 LC76G
-    [51.50, 0, .50, .50, .015],   # 6 SAM-M10Q
-    [20.00, 0, .25, .25, .010],   # 7 Tadiran TLH-5903/P: purchase per cell, service per pack
-    [8.00,  0, .25, .25, .020],   # 8 Panasonic: purchase per cell, service per pack
-    [100.00,0, .50, .50, .020],   # 9 Aluminum: inspect seals, cracks, corrosion
-    [65.00, 0, .50, .50, .030],   # 10 PETG: inspect seals, cracks, deformation
-    [15.00, 0, .25, .25, .005],   # 11 C clamp
-    [12.00, 0, .25, .25, .005],   # 12 Permanent magnet
-    [200.00,0, .50, .50, .020],   # 13 Energize-to-release magnet assembly
-    [17.07, 0, .25, .25, .010],   # 14 Tadiran TL-5930/S (19Ah D-cell): purchase per cell, service per pack
-])
-
-
-NAMES = [
-    "PT-1000", "TMP61", "ADXL362", "SQ-ASB", "Qorvo DWM3001CDK",
-    "LC76G", "SAM-M10Q", "Tadiran TLH-5903/P", "Panasonic BK120AAHA01",
-    "Aluminum enclosure", "PETG enclosure", "C clamp", "Permanent magnet",
-    "Energize-to-release magnet", "Tadiran TL-5930/S"
-]
-
-
-CATEGORIES = [(0, 1), (2, 3), (4,), (5, 6), (7, 8, 14), (9, 10), (11, 12, 13)]
-CAT_NAMES = [
-    "Temperature Sensor", "Shock Sensor", "Indoor Location",
-    "Outdoor Location", "Battery Chemistry", "Enclosure", "Attachment"
-]
-
+# --- Help Guide Expander ---
+with st.expander("Help Guide"):
+    st.markdown("""
+    **Overview:**
+    This application allows you to configure, evaluate, and optimize component and battery selections for system units over a multi-year horizon.
+    
+    * **Left Side (Controls & Inputs):** Contains interactive parameters for optimization, financial constraints, power requirements, duty cycles, and preference weights. Use these inputs to model different operational scenarios.
+    * **Right Side (Results & Outputs):** Displays real-time financial metrics, required cell counts, system power/energy totals, total discrete objective scores, failure probability counters, and itemized subsystem breakdowns.
+    
+    ---
+    
+    **Sidebar Sections:**
+    * **Analysis Mode:** Toggle between *Automated Optimization* (evaluates all valid combinations to minimize total cost + penalties) and *Manual Selection* (manually inspect specific component configurations).
+    * **Financial & Operational:** Set batch order quantities, initial box budgets, technician labor rates, evaluation horizons, hardware tax rates, and scheduled replacement settings.
+    * **Power & Battery Configuration:** Adjust base board power, conversion efficiency, safety capacity multipliers, and usable cell energy discharge ratios.
+    * **Duty Cycle Timings:** Define active operational durations and periodic interval frequencies for sensors, localization modules, and actuation assemblies.
+    * **Objective Weights:** Tune penalty multipliers applied to risk priority numbers (RPN) and average power draw.
+    """)
 
 # --- Sidebar Controls ---
-st.sidebar.header("🕹️ Optimization Parameters")
-
+st.sidebar.header("Optimization Parameters")
 
 mode = st.sidebar.radio(
     "Analysis Mode",
     ["Automated Optimization", "Manual Selection (Client Mode)"],
-    help="• Automated Optimization: Tests all feasible combinations and finds the exact discrete minimum objective.\n• Manual Selection: Allows testing of explicit component and battery choices."
+    help="• Automated Optimization: Evaluates all feasible combinations and finds the exact discrete minimum objective.\n• Manual Selection: Allows testing of explicit component choices."
 )
 
-
 st.sidebar.markdown("---")
-st.sidebar.subheader("💰 Financial & Operational")
+st.sidebar.subheader("Financial & Operational")
 
-
+batch_size = st.sidebar.number_input(
+    "Batch Order Quantity (Units)", min_value=1, value=1, step=1,
+    help="Number of identical boxes in the batch order for volume tier pricing."
+)
 budget = st.sidebar.number_input(
-    "Budget ($)", min_value=100.0, value=40000.00, step=1000.0,
+    "Budget ($)", min_value=100.0, value=2000.00, step=100.0,
     help="Maximum allowable initial purchase expenditure for one box (components + battery cells)."
 )
 labour = st.sidebar.number_input(
@@ -107,9 +61,12 @@ years = st.sidebar.number_input(
 )
 include_year5_replacement = st.sidebar.checkbox(
     "Include Scheduled Replacement Every 5 Years", value=True,
-    help="Includes hardware and pack replacement at years 5, 10, etc., including a replacement exactly at the horizon. Uncheck to omit planned replacements."
+    help="Uncheck to turn off automatic scheduled hardware replacements every 5 years."
 )
-
+tax_rate = st.sidebar.number_input(
+    "Hardware Tax Rate", min_value=0.0, max_value=0.5, value=0.10, step=0.01,
+    help="Sales/hardware tax rate applied to component and cell purchases."
+)
 
 inspections_per_year = st.sidebar.number_input(
     "Inspection Visits per Year", min_value=0, max_value=12, value=1, step=1,
@@ -117,16 +74,15 @@ inspections_per_year = st.sidebar.number_input(
 )
 shared_inspection_minutes = st.sidebar.number_input(
     "Shared Access/Setup Time per Visit (min)", min_value=0.0, value=15.0, step=1.0,
-    help="Assumed access, setup, and documentation time allocated to one box. Charged once per visit, not once per component."
+    help="Assumed access, setup, and documentation time allocated to one box."
 )
 
 st.sidebar.markdown("---")
-st.sidebar.subheader("⚡ Power & Battery Configuration")
-
+st.sidebar.subheader("Power & Battery Configuration")
 
 shared_power = st.sidebar.number_input(
-    "Shared Board Power Allowance (mW)", min_value=0.0, value=1.21, step=0.05,
-    help="Unmeasured load allowance for logging, processing, and other electronics. DC-DC losses and the release coil are accounted for separately."
+    "Shared Board Power Allowance (mW)", min_value=0.0, value=2.0, step=0.05,
+    help="Unmeasured load allowance for logging, processing, and other electronics."
 )
 conversion_efficiency = st.sidebar.slider(
     "DC-DC Conversion Efficiency", min_value=0.50, max_value=1.00, value=0.90, step=0.01,
@@ -134,48 +90,30 @@ conversion_efficiency = st.sidebar.slider(
 )
 reserve_factor = st.sidebar.slider(
     "Battery Reserve Factor Multiplier", min_value=1.00, max_value=2.00, value=1.20, step=0.05,
-    help="Safety margin multiplier for battery capacity sizing (e.g., 1.20 = 20% extra energy buffer)."
+    help="Safety margin multiplier for battery capacity sizing."
 )
-allow_panasonic = st.sidebar.checkbox(
-    "Enable Panasonic Battery Chemistry", value=False,
-    help="Enable Panasonic NiMH cells for evaluation. Leave disabled if 5-year un-recharged usable capacity retention is unverified."
+usable_fraction = st.sidebar.slider(
+    "Usable Battery Discharge Fraction", min_value=0.10, max_value=1.00, value=0.70, step=0.05,
+    help="Usable fraction of nominal capacity."
 )
-
-
-panasonic_frac_input = 0.15
-if allow_panasonic:
-    panasonic_frac_input = st.sidebar.number_input(
-        "Panasonic Usable Capacity Fraction (Assumed)",
-        min_value=0.01, max_value=1.00, value=0.15, step=0.01,
-        help="Scenario assumption for the interval between planned pack replacements, not a verified retention specification."
-    )
-    st.sidebar.caption("Panasonic retention is unverified; enabling it evaluates a hypothetical scenario.")
 
 st.sidebar.markdown("---")
-st.sidebar.subheader("⏱️ Duty Cycle Timings (Seconds)")
+st.sidebar.subheader("Duty Cycle Timings (Seconds)")
 
+temp_on = st.sidebar.number_input("Temp Sensor Active (s)", min_value=0.01, value=1.0)
+temp_interval = st.sidebar.number_input("Temp Sensor Interval (s)", min_value=1.0, value=21600.0)
 
-temp_on = st.sidebar.number_input("Temp Sensor Active (s)", min_value=0.01, value=1.0, help="Duration temperature sensor is excited per cycle.")
-temp_int = st.sidebar.number_input("Temp Sensor Interval (s)", min_value=1.0, value=300.0, help="Time period between temperature measurements.")
+uwb_on = st.sidebar.number_input("UWB Active (s)", min_value=0.01, value=0.1)
+uwb_interval = st.sidebar.number_input("UWB Interval (s)", min_value=1.0, value=43200.0)
 
+gnss_on = st.sidebar.number_input("GNSS Active (s)", min_value=0.1, value=60.0)
+gnss_interval = st.sidebar.number_input("GNSS Interval (s)", min_value=1.0, value=302400.0)
 
-uwb_on = st.sidebar.number_input("UWB Active (s)", min_value=0.01, value=0.1, help="UWB transceiver active ranging burst duration.")
-uwb_int = st.sidebar.number_input("UWB Interval (s)", min_value=1.0, value=60.0, help="Time period between UWB bursts.")
-
-
-gnss_on = st.sidebar.number_input("GNSS Active (s)", min_value=0.1, value=60.0, help="Time spent acquiring and tracking GNSS position fix.")
-gnss_int = st.sidebar.number_input("GNSS Interval (s)", min_value=1.0, value=3600.0, help="Time period between GNSS position updates.")
-
-
-lc76g_variant = st.sidebar.selectbox(
-    "LC76G GNSS Power Profile", ["PA", "AB", "PB"], index=0,
-    help="Hardware power profile for LC76G GNSS receiver module."
-)
-
+releases_per_year = st.sidebar.number_input("Releases / Year", min_value=0.0, value=2.0)
+release_seconds = st.sidebar.number_input("Release Duration (s)", min_value=0.0, value=5.0)
 
 st.sidebar.markdown("---")
-st.sidebar.subheader("⚖️ Objective Weights")
-
+st.sidebar.subheader("Objective Weights")
 
 risk_weight = st.sidebar.slider(
     "RPN Risk Penalty ($ / 100 RPN)", min_value=0.0, max_value=200.0, value=50.0, step=5.0,
@@ -186,279 +124,314 @@ power_weight = st.sidebar.slider(
     help="Dollar-equivalent preference score penalty per average milliwatt of system load."
 )
 
-
-# --- Derived Mathematical Calculations ---
+# --- Code Calculations ---
+tax_multiplier = 1 + tax_rate
 hours = years * 365 * 24
-scheduled_replacement_count = years // 5 if include_year5_replacement else 0
-# Each planned pack must span the longest interval until the next replacement.
-battery_service_years = min(years, 5) if include_year5_replacement else years
-battery_service_hours = battery_service_years * 365 * 24
 
+# Scheduled replacement multiplier logic
+scheduled_replacement_count = (years // 5) if include_year5_replacement else 0
 
-# Usable battery capacity inputs (Tadiran TLH-5903/P, Panasonic, Tadiran TL-5930/S)
-tadiran_frac = 0.70
-panasonic_frac = panasonic_frac_input if allow_panasonic else 0.0
-usable_fraction = np.array([tadiran_frac, panasonic_frac, 0.70])
-battery_allowed = np.array([1.0, float(allow_panasonic), 1.0])
+# Data array: [Purchase Price, Inspection Min, Replacement Hr, Debug Hr, Annual Failure Probability]
+data = np.array([
+    [3.145, 2, .50, .25, .010],   # 0 uxcell 10K NTC
+    [6.31,  2, .50, .25, .015],   # 1 NPSSH103F3 NTC
+    [20.00, 2, .50, .25, .010],   # 2 SQ-ASD Shock Sensor
+    [29.50, 1, .50, .50, .015],   # 3 Qorvo DWM3001C
+    [8.29,  1, .50, .50, .015],   # 4 LC76G Multi-GNSS
+    [13.75, 1, .50, .50, .015],   # 5 SAM-M10Q-00B
+    [25.11, 2, .25, .25, .010],   # 6 Tadiran TL-5930/S
+    [4.97,  2, .25, .25, .020],   # 7 Panasonic BK120AAHA01
+    [100.00, 2, .50, .50, .020],  # 8 Aluminum Enclosure
+    [23.02, 2, .50, .50, .030],   # 9 PETG Enclosure
+    [88.07, 2, .25, .25, .005],   # 10 C Clamp
+    [77.04, 2, .25, .25, .005],   # 11 Permanent Magnet
+    [33.80, 2, .50, .50, .020],   # 12 Energize-to-release Magnet
+])
 
+names = [
+    "uxcell 10K NTC Probe", "NPSSH103F3T1NDM01 Temp Sensor", "SQ-ASD",
+    "Qorvo DWM3001C", "LC76G Multi-GNSS", "SAM-M10Q-00B",
+    "Tadiran TL-5930/S", "Panasonic BK120AAHA01",
+    "Aluminum Enclosure", "PETG Enclosure", "C Clamp",
+    "Permanent Magnet", "Energize-to-release Magnet"
+]
 
-# Nominal cell Wh: Tadiran AA (3.6V * 2.0Ah), Panasonic AA (1.2V * 1.2Ah), Tadiran D (3.6V * 19.0Ah)
-nominal_cell_wh = np.array([3.6 * 2.0, 1.2 * 1.2, 3.6 * 19.0])
-pack_hardware_cost = np.array([0.0, 0.0, 0.0])
+categories = [(0, 1), (2,), (3,), (4, 5), (6, 7), (8, 9), (10, 11, 12)]
+cat_names = [
+    "Temperature Sensor", "Shock Sensor", "Indoor Location",
+    "Outdoor Location", "Battery Chemistry", "Enclosure", "Attachment"
+]
 
+bulk_prices = {
+    0: [(10, None, 3.145), (100, None, 3.145), (1000, None, 3.145)],
+    1: [(10, None, 5.44), (100, None, 4.79), (1000, None, 4.31)],
+    2: [(50, None, 15.00)],
+    3: [(10, None, 29.50), (100, None, 29.50), (1000, None, 29.50)],
+    4: [(10, None, 7.19), (100, None, 6.2824), (1000, None, 5.53651)],
+    5: [(10, None, 13.75), (100, None, 13.75), (1000, None, 11.23752)],
+    6: [(10, None, 22.00), (100, None, 17.07), (1000, None, 11.00)],
+    7: [(10, None, 3.91), (100, None, 3.42), (1000, None, 2.78)],
+    11: [(50, None, 57.31)],
+}
 
-# Calculated duty cycle fractions
-temp_fraction = temp_on / temp_int
-uwb_fraction = uwb_on / uwb_int
-gnss_fraction = gnss_on / gnss_int
-if any(fraction > 1 for fraction in (temp_fraction, uwb_fraction, gnss_fraction)):
-    st.error("Active time cannot exceed the corresponding measurement interval.")
-    st.stop()
+def unit_price(j, order_quantity):
+    return tax_multiplier * min(
+        [data[j, 0]] + [price for low, high, price in bulk_prices.get(j, [])
+                        if low <= order_quantity and (high is None or order_quantity <= high)]
+    )
 
+nominal_cell_wh = np.array([3.6 * 19.0, 1.2 * 1.2])
+usable_energy = nominal_cell_wh * usable_fraction * conversion_efficiency
+pack_hardware_cost = np.array([0.0, 0.0])
 
-# Fixed magnet release active fraction (2 releases per year @ 5s each)
-release_active_fraction = (RELEASES_PER_YEAR * RELEASE_SECONDS) / (365 * 24 * 3600)
-
-
-# Component power draw vector (15 components)
-lc_on, lc_idle = LC_MODES[lc76g_variant]
-comp_power = np.zeros(15)
-comp_power[0:2] = 0.33 * temp_fraction
-comp_power[2] = 3.3 * .0027
-comp_power[3] = 3.3 * .0011
-comp_power[4] = 120 * uwb_fraction + .00255 * (1 - uwb_fraction)
-comp_power[5] = lc_on * gnss_fraction + lc_idle * (1 - gnss_fraction)
-comp_power[6] = 45.9099 * gnss_fraction + .0924 * (1 - gnss_fraction)
-comp_power[13] = 6800.0 * release_active_fraction  # Energize-to-release magnet average power load
-
-
-# Costs & Failure Repairs calculations
-purchase, inspection_minutes, replacement_hours, diagnosis_hours, p = DATA.T
-# Annual Bernoulli assumption: p is the chance of one modeled failure replacement
-# in a year. E[N] = years*p, with a modeled maximum of years PER COMPONENT/PACK.
-# Fractions are averages across many equivalent boxes, not partial replacements.
+purchase, inspection_minutes, replacement_hours, diagnosis_hours, p = data.T
 events = years * p
 inspection_visits = years * inspections_per_year
 shared_inspection_cost = inspection_visits * labour * shared_inspection_minutes / 60.0
 
-
-initial_cost = purchase.copy()
-initial_cost[[7, 8, 14]] = pack_hardware_cost
+initial = np.array([unit_price(j, batch_size) for j in range(13)])
+initial[6:8] = pack_hardware_cost
 inspections = inspection_visits * labour * inspection_minutes / 60.0
-replacement = initial_cost + labour * replacement_hours
+replacement = initial + labour * replacement_hours
 scheduled = scheduled_replacement_count * replacement
-repairs = events * (replacement + labour * diagnosis_hours)
+maintenance = inspections + scheduled
 
+repair_purchase = purchase * tax_multiplier
+repair_purchase[6:8] = pack_hardware_cost
+repair_event = repair_purchase + labour * (replacement_hours + diagnosis_hours)
+repairs = events * repair_event
+cost = initial + maintenance + repairs
 
-cell_initial = purchase[[7, 8, 14]].copy()
-cell_maintenance = scheduled_replacement_count * cell_initial
-cell_repairs = events[[7, 8, 14]] * cell_initial
+lowest_cell_prices = np.array([
+    min([purchase[j]] + [tier[2] for tier in bulk_prices.get(j, [])])
+    for j in (6, 7)
+])
+max_cells = np.floor(budget / (tax_multiplier * lowest_cell_prices)).astype(int)
 
+tadiran_rpn = 240 + 144 + 96       # 480
+panasonic_rpn = 96 + 120 + 243 + 96 # 555
+rpn = np.zeros(13)
+rpn[6:8] = [tadiran_rpn, panasonic_rpn]
 
-rpn = np.zeros(15)
-rpn[7] = 480   # Tadiran TLH-5903/P
-rpn[8] = 555   # Panasonic
-rpn[14] = 480  # Tadiran TL-5930/S
+power_data = np.array([
+    [0.33, 0, 0],                  # 0 uxcell
+    [0.33, 0, 0],                  # 1 NPSSH103F3
+    [0.00363, 0, 0.00363],         # 2 SQ-ASD
+    [120.0, 0, 0.00255],           # 3 Qorvo
+    [32.66, 32.66, 0.0429],        # 4 LC76G
+    [45.91, 45.91, 0.0924],        # 5 SAM-M10Q
+    [0, 0, 0],                     # 6 Tadiran
+    [0, 0, 0],                     # 7 Panasonic
+    [0, 0, 0],                     # 8 Aluminum
+    [0, 0, 0],                     # 9 PETG
+    [0, 0, 0],                     # 10 C Clamp
+    [0, 0, 0],                     # 11 Permanent Magnet
+    [6800.0, 0, 0],                # 12 Energize-to-release
+])
 
+active_fraction = np.zeros(13)
+active_fraction[0:2] = temp_on / temp_interval
+active_fraction[2] = 1.0
+active_fraction[3] = uwb_on / uwb_interval
+active_fraction[4:6] = gnss_on / gnss_interval
+active_fraction[12] = releases_per_year * release_seconds / (365 * 24 * 3600)
 
-usable_energy = nominal_cell_wh * usable_fraction * conversion_efficiency
+acquisition_fraction = np.zeros(13)
+idle_fraction = 1 - active_fraction - acquisition_fraction
 
+operating, acquisition, idle = power_data.T
+power = (active_fraction * operating + acquisition_fraction * acquisition + idle_fraction * idle)
+energy = power * hours / 1000.0
 
-# Battery mapping lookup for selected index to battery array index (0, 1, 2)
-BATT_MAP = {7: 0, 8: 1, 14: 2}
-
-
-# --- Application Layout ---
+# --- Layout Implementation ---
 col_left, col_right = st.columns([1, 1])
 selected_indices = {}
-
+best_cells = 1
+b_type = 0
 
 with col_left:
-    st.subheader("📦 Hardware & Battery Selection")
+    st.subheader("Hardware & Battery Selection")
     
     if mode == "Manual Selection (Client Mode)":
         st.info("Pick components manually to inspect real-time capacity and cost metrics.")
-        for cat_idx, (cat_name, tuple_indices) in enumerate(zip(CAT_NAMES, CATEGORIES)):
-            options = [NAMES[i] for i in tuple_indices]
+        for cat_idx, (cat_name, tuple_indices) in enumerate(zip(cat_names, categories)):
+            options = [names[i] for i in tuple_indices]
             choice = st.selectbox(f"Select {cat_name}:", options, key=f"select_{cat_idx}")
             selected_indices[cat_name] = tuple_indices[options.index(choice)]
+            
+        chosen_indices = np.array(list(selected_indices.values()))
+        b_type = chosen_indices[4] - 6
+        avg_power = shared_power + power[chosen_indices].sum()
+        pack_energy = avg_power * hours / 1000.0
+        best_cells = max(1, int(np.ceil(reserve_factor * pack_energy / usable_energy[b_type])))
     else:
-        st.success("🤖 Optimization Mode Active — Evaluating exact discrete combinations.")
-        best_combo = None
-        min_obj = float("inf")
+        st.success("Optimization Mode Active — Evaluating exact discrete combinations.")
+        best = None
+        minimum = np.inf
         feasible_count = 0
-        
-        for choice in product(*CATEGORIES):
+
+        for choice in product(*categories):
             i = np.array(choice)
-            b = BATT_MAP[choice[4]]
-            if not battery_allowed[b]:
-                continue
+            b = choice[4] - 6
             
-            avg_pwr = shared_power + comp_power[i].sum()
-            energy_wh = avg_pwr * hours / 1000.0
+            average_power = shared_power + power[i].sum()
+            pack_energy = average_power * hours / 1000.0
+            required_cells = max(1, int(np.ceil(reserve_factor * pack_energy / usable_energy[b])))
             
-            if usable_energy[b] <= 0:
-                continue
+            combination_feasible = False
+            for n_cells in range(required_cells, max_cells[b] + 1):
+                cell_initial = unit_price(6 + b, batch_size * n_cells)
+                cell_maintenance = scheduled_replacement_count * cell_initial
+                cell_repairs = events[6 + b] * unit_price(6 + b, n_cells)
+                cell_cost = cell_initial + cell_maintenance + cell_repairs
+
+                upfront = initial[i].sum() + n_cells * cell_initial
+                if upfront > budget:
+                    continue
+
+                obj = (cost[i].sum() + n_cells * cell_cost + shared_inspection_cost
+                       + risk_weight * rpn[i].sum() / 100.0 + power_weight * average_power)
                 
-            pack_energy_wh = avg_pwr * battery_service_hours / 1000.0
-            n_cells = max(1, int(np.ceil(reserve_factor * pack_energy_wh / usable_energy[b])))
-            upfront = initial_cost[i].sum() + n_cells * cell_initial[b]
-            
-            if upfront > budget:
-                continue
-                
-            insp_cost = inspections[i].sum() + shared_inspection_cost
-            repl_cost = scheduled[i].sum() + n_cells * cell_maintenance[b]
-            rep_cost = repairs[i].sum() + n_cells * cell_repairs[b]
-            cash = upfront + insp_cost + repl_cost + rep_cost
-            
-            r_pen = risk_weight * rpn[i].sum() / 100.0
-            p_pen = power_weight * avg_pwr
-            obj = cash + r_pen + p_pen
-            
-            feasible_count += 1
-            if obj < min_obj:
-                min_obj = obj
-                best_combo = (i, b, n_cells, avg_pwr, energy_wh, upfront, insp_cost, repl_cost, rep_cost, cash, r_pen, p_pen)
-                
-        if best_combo is None:
-            st.error("⚠️ Over Budget or Infeasible! No enabled battery configuration satisfies the initial budget.")
+                combination_feasible = True
+                if obj < minimum:
+                    minimum, best = obj, i
+                    best_battery, best_cells = b, n_cells
+
+            feasible_count += int(combination_feasible)
+
+        if best is None:
+            st.error("Over Budget or Infeasible! No component combination satisfies the budget.")
+            st.stop()
         else:
-            opt_indices, opt_b, opt_n, *_ = best_combo
-            for cat_name, idx_val in zip(CAT_NAMES, opt_indices):
+            b_type = best_battery
+            for cat_name, idx_val in zip(cat_names, best):
                 selected_indices[cat_name] = idx_val
-                count_str = f" x{opt_n} cells" if idx_val in (7, 8, 14) else ""
-                st.markdown(f"**{cat_name}:** `{NAMES[idx_val]}{count_str}`")
+                count_str = f" x{best_cells} cells" if idx_val in (6, 7) else ""
+                st.markdown(f"**{cat_name}:** `{names[idx_val]}{count_str}`")
             st.caption(f"Feasible configurations evaluated: {feasible_count} combinations")
 
+# --- Detailed Evaluation ---
+chosen_indices = np.array(list(selected_indices.values()))
+cell_idx = 6 + b_type
+cell_initial_price = unit_price(cell_idx, batch_size * best_cells)
+cell_maintenance_price = scheduled_replacement_count * cell_initial_price
+cell_repairs_price = events[cell_idx] * unit_price(cell_idx, best_cells)
 
-# --- Selected Configuration Evaluation ---
-if len(selected_indices) == len(CATEGORIES):
-    chosen_idx = np.array(list(selected_indices.values()))
-    b_type = BATT_MAP[chosen_idx[4]]
+initial_total = initial[chosen_indices].sum() + best_cells * cell_initial_price
+inspection_total = inspections[chosen_indices].sum() + shared_inspection_cost
+scheduled_total = scheduled[chosen_indices].sum() + best_cells * cell_maintenance_price
+repair_total = repairs[chosen_indices].sum() + best_cells * cell_repairs_price
+cash_total = initial_total + inspection_total + scheduled_total + repair_total
+
+avg_load_mW = shared_power + power[chosen_indices].sum()
+five_yr_energy_wh = avg_load_mW * hours / 1000.0
+
+tot_risk_pen = risk_weight * rpn[chosen_indices].sum() / 100.0
+tot_power_pen = power_weight * avg_load_mW
+total_objective = cash_total + tot_risk_pen + tot_power_pen
+
+# --- Failure Probabilities & Counters Calculations ---
+# Expected failures for one box over selected horizon
+expected_failures_per_box = events[chosen_indices].sum()
+# Total expected failed parts across all units in the batch
+total_expected_failed_parts = expected_failures_per_box * batch_size
+
+# Probability of at least one component failing in a single box over the horizon:
+# P(at least 1 failure) = 1 - P(no failures across all components)
+# For each component: P_survival_annual = 1 - p_i
+# P_survival_horizon = (1 - p_i) ^ years
+p_chosen = p[chosen_indices]
+prob_no_failure_single_box = np.prod((1.0 - p_chosen) ** years)
+prob_at_least_one_failure_single_box = 1.0 - prob_no_failure_single_box
+
+with col_right:
+    st.subheader("Financial, Power & Energy Summary")
     
-    avg_load_mW = shared_power + comp_power[chosen_idx].sum()
-    avg_battery_output_mW = avg_load_mW / conversion_efficiency
-    five_yr_energy_wh = avg_load_mW * hours / 1000.0
-    pack_load_energy_wh = avg_load_mW * battery_service_hours / 1000.0
-    required_reserve_wh = reserve_factor * pack_load_energy_wh
+    m1, m2 = st.columns(2)
+    m1.metric(
+        "Initial Box & Pack Purchase",
+        f"${initial_total:,.2f}",
+        delta=f"${budget - initial_total:,.2f} under budget" if initial_total <= budget else "OVER BUDGET",
+        delta_color="normal" if initial_total <= budget else "inverse"
+    )
+    m2.metric(f"{years}-Year Total Cash Cost", f"${cash_total:,.2f}")
     
-    if usable_energy[b_type] > 0:
-        required_cells = max(1, int(np.ceil(required_reserve_wh / usable_energy[b_type])))
-    else:
-        st.error("Selected battery chemistry is disabled. Enable it to evaluate this scenario.")
-        st.stop()
-        
-    delivered_pack_energy_wh = required_cells * usable_energy[b_type]
+    m3, m4 = st.columns(2)
+    m3.metric("Required Battery Cells", f"{best_cells} cells", delta=f"{best_cells * usable_energy[b_type]:.1f} Wh usable capacity")
+    m4.metric("System Average Load", f"{avg_load_mW:.4f} mW", delta=f"{five_yr_energy_wh:.2f} Wh / {years} yrs")
     
-    # Financial breakdown
-    tot_upfront = initial_cost[chosen_idx].sum() + required_cells * cell_initial[b_type]
-    tot_inspections = inspections[chosen_idx].sum() + shared_inspection_cost
-    tot_replacement = scheduled[chosen_idx].sum() + required_cells * cell_maintenance[b_type]
-    tot_repairs = repairs[chosen_idx].sum() + required_cells * cell_repairs[b_type]
-    
-    tot_cash_cost = tot_upfront + tot_inspections + tot_replacement + tot_repairs
-    tot_risk_pen = risk_weight * rpn[chosen_idx].sum() / 100.0
-    tot_power_pen = power_weight * avg_load_mW
-    total_objective = tot_cash_cost + tot_risk_pen + tot_power_pen
-
-
-    with col_right:
-        st.subheader("📊 Financial, Power & Energy Summary")
-        
-        m1, m2 = st.columns(2)
-        m1.metric(
-            "Initial Box & Pack Purchase",
-            f"${tot_upfront:,.2f}",
-            delta=f"${budget - tot_upfront:,.2f} under budget" if tot_upfront <= budget else "OVER BUDGET",
-            delta_color="normal" if tot_upfront <= budget else "inverse"
-        )
-        m2.metric(f"{years}-Year Total Cash Cost", f"${tot_cash_cost:,.2f}")
-        
-        m3, m4 = st.columns(2)
-        m3.metric("Required Battery Cells", f"{required_cells} cells", delta=f"{delivered_pack_energy_wh:.1f} Wh usable capacity")
-        m4.metric("System Average Load", f"{avg_load_mW:.4f} mW", delta=f"{five_yr_energy_wh:.2f} Wh / {years} yrs")
-        
-        st.markdown("---")
-        st.metric("Total Discrete Objective Score", f"${total_objective:,.2f}")
-        st.caption("Objective includes non-cash risk and power penalties; cash cost is shown above.")
-        m5, m6 = st.columns(2)
-        m5.metric("Expected Failure Replacements", f"{events[chosen_idx].sum():.3f}")
-        m6.metric("Scheduled Replacements", f"{scheduled_replacement_count * len(chosen_idx)}")
-        st.caption("Replacement counts are component/pack events. A battery pack counts as one event, regardless of its cell count.")
-        st.caption(f"Each pack is sized for {battery_service_years} years: {required_reserve_wh:.2f} Wh required including reserve.")
-
-
-    # Itemized Breakdown
     st.markdown("---")
-    st.subheader("📋 Subsystem & Battery Cell Itemized Breakdown")
     
-    rows = []
-    for cat_name, idx_val in selected_indices.items():
-        is_batt = idx_val in (7, 8, 14)
-        cnt = required_cells if is_batt else 1
-        
-        # Include fixed pack hardware/labor AND cell purchases so rows reconcile.
-        c_init = initial_cost[idx_val] + (cnt * cell_initial[b_type] if is_batt else 0)
-        c_insp = inspections[idx_val]
-        c_repl = scheduled[idx_val] + (cnt * cell_maintenance[b_type] if is_batt else 0)
-        c_rep = repairs[idx_val] + (cnt * cell_repairs[b_type] if is_batt else 0)
-        c_tot = c_init + c_insp + c_repl + c_rep
-        pwr = comp_power[idx_val]
-        
-        rows.append({
-            "Subsystem": cat_name,
-            "Item": NAMES[idx_val],
-            "Quantity": cnt,
-            "Initial ($)": f"${c_init:,.2f}",
-            "Inspections ($)": f"${c_insp:,.2f}",
-            "Scheduled Replacement ($)": f"${c_repl:,.2f}",
-            "Scheduled Replacement Count": scheduled_replacement_count,
-            "Expected Failure Replacement Count": round(float(events[idx_val]), 3),
-            "Expected Total Replacement Count": round(float(scheduled_replacement_count + events[idx_val]), 3),
-            "Expected Repairs ($)": f"${c_rep:,.2f}",
-            "Total Cash ($)": f"${c_tot:,.2f}",
-            "Avg Load (mW)": f"{pwr:.6f}"
-        })
-        
+    m5, m6 = st.columns(2)
+    m5.metric(
+        f"Expected Failed Parts ({years} Yrs)",
+        f"{total_expected_failed_parts:.2f} parts",
+        delta=f"{expected_failures_per_box:.2f} per box across {batch_size} unit(s)"
+    )
+    m6.metric(
+        f"Box Failure Risk ({years} Yrs)",
+        f"{prob_at_least_one_failure_single_box * 100:.2f}%",
+        help="Probability that at least one component in a single box experiences a failure over the planning horizon."
+    )
+    
+    st.markdown("---")
+    st.metric("Total Discrete Objective Score", f"${total_objective:,.2f}")
+    st.caption("Objective includes non-cash risk and power penalties; cash cost is shown above.")
+    
+    m7, m8 = st.columns(2)
+    m7.metric("Initial Batch Order Cost", f"${batch_size * initial_total:,.2f}")
+    m8.metric(f"{years}-Yr Batch Order Cash Cost", f"${batch_size * cash_total:,.2f}")
+
+# --- Breakdown Table ---
+st.markdown("---")
+st.subheader("Subsystem & Battery Cell Itemized Breakdown")
+
+rows = []
+for cat_name, idx_val in selected_indices.items():
+    is_batt = idx_val in (6, 7)
+    cnt = best_cells if is_batt else 1
+    
+    c_init = (cnt * cell_initial_price) if is_batt else initial[idx_val]
+    c_insp = inspections[idx_val]
+    c_repl = (cnt * cell_maintenance_price) if is_batt else scheduled[idx_val]
+    c_rep = (cnt * cell_repairs_price) if is_batt else repairs[idx_val]
+    c_tot = c_init + c_insp + c_repl + c_rep
+    pwr = power[idx_val]
+    
     rows.append({
-        "Subsystem": "Shared visit / electronics",
-        "Item": "Access, setup, documentation / board power allowance",
-        "Quantity": 1,
-        "Initial ($)": "$0.00",
-        "Inspections ($)": f"${shared_inspection_cost:,.2f}",
-        "Scheduled Replacement ($)": "$0.00",
-        "Scheduled Replacement Count": 0,
-        "Expected Failure Replacement Count": 0.0,
-        "Expected Total Replacement Count": 0.0,
-        "Expected Repairs ($)": "$0.00",
-        "Total Cash ($)": f"${shared_inspection_cost:,.2f}",
-        "Avg Load (mW)": f"{shared_power:.6f}"
+        "Subsystem": cat_name,
+        "Item": names[idx_val],
+        "Quantity": cnt,
+        "Initial ($)": f"${c_init:,.2f}",
+        "Inspections ($)": f"${c_insp:,.2f}",
+        "Scheduled Replacement ($)": f"${c_repl:,.2f}",
+        "Expected Failure Replacement Count": round(float(events[idx_val]), 3),
+        "Expected Repairs ($)": f"${c_rep:,.2f}",
+        "Total Cash ($)": f"${c_tot:,.2f}",
+        "Avg Load (mW)": f"{pwr:.6f}"
     })
-    st.dataframe(rows, width="stretch")
-    st.caption("Expected Repairs ($) is a dollar cost, not a replacement count. Counts are shown in separate columns. Displayed row totals can differ by a cent due to rounding.")
-    with st.expander("Inspection and replacement assumptions"):
-        st.markdown(
-            f"Inspections cost technician time: **{years} years × {inspections_per_year} visits/year × minutes/visit ÷ 60 × ${labour:.2f}/hour**. "
-            "Component checks share one visit; access/setup is charged once. "
-            "These are editable planning estimates, not measured service times."
-        )
-        st.markdown(
-            "**Expected failure replacements = years × annual failure probability.** "
-            "The model allows at most one failure replacement per component or battery pack in each year. "
-            "Thus the five-year modeled maximum is five unscheduled replacements per component, not five for the entire box. "
-            "Actual repeated failures could exceed that assumption. Scheduled replacements are additional."
-        )
-        st.markdown(
-            "For TMP61, the assumed annual failure probability is 1.5%. Over five years, "
-            "the expected failure-replacement count is **5 × 0.015 = 0.075**. "
-            "With one scheduled year-5 replacement, the expected total is **1.075**. "
-            "A fractional expectation is an average across many boxes; most individual sensors would have no failure replacement."
-        )
-        st.dataframe(pd.DataFrame({
-            "Component": NAMES,
-            "Assumed Annual Failure Probability (%)": 100 * p,
-            "Expected Failure Replacement Count": events
-        }), hide_index=True, width="stretch")
-        st.caption("Battery failure probabilities are provisional pack-level assumptions. RPN is a priority score, not a failure probability. Capacity retention, board power, and pack peak-current capability still need verification.")
-    st.caption("⚠️ *Note: Release magnet power is modeled on a fixed baseline assumption of 2 releases/year @ 5 seconds per event.*")
+    
+rows.append({
+    "Subsystem": "Shared visit / electronics",
+    "Item": "Access, setup, documentation / board power allowance",
+    "Quantity": 1,
+    "Initial ($)": "$0.00",
+    "Inspections ($)": f"${shared_inspection_cost:,.2f}",
+    "Scheduled Replacement ($)": "$0.00",
+    "Expected Failure Replacement Count": 0.0,
+    "Expected Repairs ($)": "$0.00",
+    "Total Cash ($)": f"${shared_inspection_cost:,.2f}",
+    "Avg Load (mW)": f"{shared_power:.6f}"
+})
+
+st.dataframe(pd.DataFrame(rows), width="stretch")
+
+# --- Source Code Expander ---
+st.markdown("---")
+with st.expander("Show Complete Application Source Code"):
+    try:
+        with open(__file__, "r") as f:
+            code_text = f.read()
+        st.code(code_text, language="python")
+    except Exception:
+        st.info("Source code display is available when executed directly from file.")
