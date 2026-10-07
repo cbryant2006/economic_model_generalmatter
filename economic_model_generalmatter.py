@@ -19,7 +19,7 @@ with st.expander("Help Guide"):
     This application allows you to configure, evaluate, and optimize component and battery selections for system units over a multi-year horizon.
     
     * **Left Side (Controls & Inputs):** Contains interactive parameters for optimization, financial constraints, power requirements, duty cycles, and preference weights. Use these inputs to model different operational scenarios.
-    * **Right Side (Results & Outputs):** Displays real-time financial metrics, required cell counts, system power/energy totals, total discrete objective scores, failure probability counters, and itemized subsystem breakdowns.
+    * **Right Side (Results & Outputs):** Displays real-time financial metrics, required cell counts, system power/energy totals, failure probability counters, and itemized subsystem breakdowns.
     
     ---
     
@@ -331,15 +331,9 @@ tot_power_pen = power_weight * avg_load_mW
 total_objective = cash_total + tot_risk_pen + tot_power_pen
 
 # --- Failure Probabilities & Counters Calculations ---
-# Expected failures for one box over selected horizon
 expected_failures_per_box = events[chosen_indices].sum()
-# Total expected failed parts across all units in the batch
 total_expected_failed_parts = expected_failures_per_box * batch_size
 
-# Probability of at least one component failing in a single box over the horizon:
-# P(at least 1 failure) = 1 - P(no failures across all components)
-# For each component: P_survival_annual = 1 - p_i
-# P_survival_horizon = (1 - p_i) ^ years
 p_chosen = p[chosen_indices]
 prob_no_failure_single_box = np.prod((1.0 - p_chosen) ** years)
 prob_at_least_one_failure_single_box = 1.0 - prob_no_failure_single_box
@@ -375,8 +369,6 @@ with col_right:
     )
     
     st.markdown("---")
-    st.metric("Total Discrete Objective Score", f"${total_objective:,.2f}")
-    st.caption("Objective includes non-cash risk and power penalties; cash cost is shown above.")
     
     m7, m8 = st.columns(2)
     m7.metric("Initial Batch Order Cost", f"${batch_size * initial_total:,.2f}")
