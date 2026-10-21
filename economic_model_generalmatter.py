@@ -183,7 +183,7 @@ weight_data = np.array([
     92.5, 24,
     2.70 * enclosure_volume_cm3,
     1.27 * enclosure_volume_cm3,
-    5, 100, 50, 3, 0.3, 0.74, 0.071, 0.5, 0.5
+    5, 6.0, 50, 3, 0.3, 0.74, 0.071, 0.5, 0.5  # Permanent magnet weight set to 6.0g
 ])
 weight = weight_data.copy()
 weight[6:8] = 0.0
@@ -552,7 +552,7 @@ with col_right:
     m5, m6 = st.columns(2)
     m5.metric(
         f"Expected Failed Parts ({years} Yrs)",
-        f"${total_expected_failed_parts:,.2f}" if False else f"{total_expected_failed_parts:.2f} parts",
+        f"{total_expected_failed_parts:.2f} parts",
         delta=f"{expected_failures_box:.2f} per box across {batch_size} unit(s)",
         help=f"? Total statistical expected number of component and battery cell failures across the batch order over the {years}-year operational horizon based on annual failure rates ($p$)."
     )
@@ -617,7 +617,7 @@ rows.append({
     "Expected Failures": 0.0,
     "Expected Repairs ($)": "$0.00",
     "Total Cash ($)": f"${shared_inspection_cost:,.2f}",
-    "Avg Load (mW)": f"{shared_power:.6f}",
+    "Avg Load (mW)": f"${shared_power:.6f}",
     "Weight (g)": "0.00"
 })
 
