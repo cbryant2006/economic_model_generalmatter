@@ -5,7 +5,7 @@ from itertools import product
 
 # --- Page Configuration ---
 st.set_page_config(
-    page_title="General Matter Economic Model v2",
+    page_title="General Matter Economic Model",
     layout="wide"
 )
 
@@ -105,9 +105,6 @@ uwb_interval = st.sidebar.number_input("UWB Interval (s)", min_value=1.0, value=
 
 gnss_on = st.sidebar.number_input("GNSS Active (s)", min_value=0.1, value=60.0, help="? Active tracking duration in seconds for GNSS satellite fixes.")
 gnss_interval = st.sidebar.number_input("GNSS Interval (s)", min_value=1.0, value=302400.0 / 2, help="? Time interval in seconds between outdoor GNSS location fixes.")
-
-releases_per_year = st.sidebar.number_input("Releases / Year", min_value=0.0, value=1.0, help="? Number of mechanical release actuator operations triggered per year.")
-release_seconds = st.sidebar.number_input("Release Duration (s)", min_value=0.0, value=10.0, help="? Active activation duration in seconds per release event.")
 
 mcu_on = st.sidebar.number_input("Standalone MCU Active (s)", min_value=0.1, value=1.0, help="? Active processing duration in seconds for standalone microcontrollers.")
 mcu_interval = st.sidebar.number_input("Standalone MCU Interval (s)", min_value=1.0, value=60.0, help="? Time interval in seconds between microcontroller processing cycles.")
@@ -251,7 +248,6 @@ shared_inspection_cost = inspection_visits * labour * shared_inspection_minutes 
 initial = np.array([unit_price(j, batch_size) for j in range(len(data))])
 initial[6:8] = pack_hardware_cost
 inspections = inspection_visits * labour * inspection_minutes / 60.0
-replacement = scheduled_replacement_count * replacement if 'replacement' in locals() else initial + labour * replacement_hours # safety fallback
 scheduled = scheduled_replacement_count * (initial + labour * replacement_hours)
 maintenance = inspections + scheduled
 
@@ -299,7 +295,7 @@ active_fraction[0:2] = temp_on / temp_interval
 active_fraction[2] = 1.0
 active_fraction[3] = uwb_on / uwb_interval
 active_fraction[4:6] = gnss_on / gnss_interval
-active_fraction[12] = releases_per_year * release_seconds / (365 * 24 * 3600)
+active_fraction[12] = 0.0  # Releases removed
 active_fraction[13:16] = mcu_on / mcu_interval
 active_fraction[16] = rfid_on / rfid_interval
 active_fraction[17:19] = 30.0 / gnss_interval
@@ -539,12 +535,24 @@ with col_right:
         help="? Time-weighted average power draw across all active components, duty cycles, and shared board allowances in milliwatts."
     )
     
+    m_mag, m_wt = st.columns(2)
+    m_mag.metric(
+        "Required Magnets",
+        f"{best_attachments} units",
+        help="? Total number of mounting magnets required per box to support structural weight based on sliding friction coefficient and safety factor limits."
+    )
+    m_wt.metric(
+        "Total Box Weight",
+        f"{total_box_weight:.2f} g",
+        help="? Total physical weight of the assembled box including enclosure shell, sensors, batteries, microcontrollers, and holding magnets in grams."
+    )
+    
     st.markdown("---")
     
     m5, m6 = st.columns(2)
     m5.metric(
         f"Expected Failed Parts ({years} Yrs)",
-        f"{total_expected_failed_parts:.2f} parts",
+        f"${total_expected_failed_parts:,.2f}" if False else f"{total_expected_failed_parts:.2f} parts",
         delta=f"{expected_failures_box:.2f} per box across {batch_size} unit(s)",
         help=f"? Total statistical expected number of component and battery cell failures across the batch order over the {years}-year operational horizon based on annual failure rates ($p$)."
     )
@@ -560,13 +568,13 @@ with col_right:
     m7.metric(
         "Bulk Order Total (w/ Facility)",
         f"${batch_size * initial_total + facility_total:,.2f}",
-        help="? Total initial financial outlay for the entire bulk batch order quantity, combining the initial hardware purchase for all boxes plus the total facility implementation cost."
+        help="? Total financial outlay for the entire batch order quantity, combining the total bulk purchase cost of all boxes plus the total facility implementation cost."
     )
     m8.metric(
         "Facility Implementation Cost",
         f"${facility_total:,.2f}",
         delta=f"${facility_total / batch_size:,.2f} per box share",
-        help="? Total cost to install the indoor/outdoor tracking antennas and facility hardware by itself (standalone total, with its per-box amortized share shown below)."
+        help="? Total standalone cost to install the indoor/outdoor tracking antennas and facility infrastructure by itself (with its per-box amortized share shown below)."
     )
 
 # --- Itemized Breakdown Table ---
