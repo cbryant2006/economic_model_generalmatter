@@ -9,7 +9,7 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("General Matter Economic Model — Advanced Dashboard")
+st.title("General Matter Economic Model")
 st.caption("Multi-year component selection, battery cell sizing, duty cycle power profiling, magnet holding mechanics, and FMEA optimization.")
 
 # --- Help Guide Expander ---
@@ -23,9 +23,9 @@ with st.expander("Help Guide & Model Overview"):
     
     ---
     
-    **Understanding Amortized Facility Cost:**
-    * **Facility Cost Total:** Represents one-time initial infrastructure, tooling, and installation labor expenses required to set up tracking and production (e.g., UWB anchors, RFID doorway antennas, AprilTag cameras, and site installation labor).
-    * **Amortization:** Because these are one-time fixed setup costs for the entire batch, the model **amortizes** (distributes) the total facility cost evenly across all units in the batch order ($\text{Facility per box} = \frac{\text{Total Facility Cost}}{\text{Batch Order Quantity}}$). Ordering larger batches significantly reduces the facility cost share per individual box.
+    **Understanding Facility & Bulk Costs:**
+    * **Bulk Order Total (w/ Facility):** The total financial outlay for the entire batch order quantity, combining the total bulk purchase cost of all boxes plus the total infrastructure installation cost.
+    * **Facility Implementation Cost:** The standalone total cost to procure and install the chosen tracking infrastructure (e.g., UWB anchors, RFID antennas, AprilTag cameras, and site setup labor) by itself.
     """)
 
 # --- Sidebar Controls ---
@@ -179,7 +179,6 @@ names = [
     "u-blox MAX-M11N-00B"
 ]
 
-# Hollow box: 7x7x11 cm outer dimensions with 0.5 cm wall thickness
 enclosure_volume_cm3 = (7 * 7 * 11) - (6 * 6 * 10)
 
 weight_data = np.array([
@@ -252,8 +251,8 @@ shared_inspection_cost = inspection_visits * labour * shared_inspection_minutes 
 initial = np.array([unit_price(j, batch_size) for j in range(len(data))])
 initial[6:8] = pack_hardware_cost
 inspections = inspection_visits * labour * inspection_minutes / 60.0
-replacement = initial + labour * replacement_hours
-scheduled = scheduled_replacement_count * replacement
+replacement = scheduled_replacement_count * replacement if 'replacement' in locals() else initial + labour * replacement_hours # safety fallback
+scheduled = scheduled_replacement_count * (initial + labour * replacement_hours)
 maintenance = inspections + scheduled
 
 repair_purchase = np.array([unit_price(j, 1) for j in range(len(data))])
@@ -559,14 +558,15 @@ with col_right:
     
     m7, m8 = st.columns(2)
     m7.metric(
-        "Initial Order Total (w/ Facility)",
+        "Bulk Order Total (w/ Facility)",
         f"${batch_size * initial_total + facility_total:,.2f}",
-        help="? Total initial financial outlay for the entire batch order quantity, including initial hardware purchase and amortized facility/tooling setup costs."
+        help="? Total initial financial outlay for the entire bulk batch order quantity, combining the initial hardware purchase for all boxes plus the total facility implementation cost."
     )
     m8.metric(
-        "Facility Share Per Box",
-        f"${facility_total / batch_size:,.2f}",
-        help="? One-time facility, setup, and tooling infrastructure costs amortized (divided evenly) per individual unit across the batch order quantity."
+        "Facility Implementation Cost",
+        f"${facility_total:,.2f}",
+        delta=f"${facility_total / batch_size:,.2f} per box share",
+        help="? Total cost to install the indoor/outdoor tracking antennas and facility hardware by itself (standalone total, with its per-box amortized share shown below)."
     )
 
 # --- Itemized Breakdown Table ---
