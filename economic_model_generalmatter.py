@@ -180,13 +180,13 @@ enclosure_volume_cm3 = (7 * 7 * 11) - (6 * 6 * 10)
 
 weight_data = np.array([
     15, 15, 0.3, 20, 0.5, 5.6,
-    92.5, 24,
+    92.5, 24.0,  # Tadiran TL-5930/S = 92.5g, Panasonic BK120AAHA01 = 24.0g
     2.70 * enclosure_volume_cm3,
     1.27 * enclosure_volume_cm3,
-    5, 6.0, 50, 3, 0.3, 0.74, 0.071, 0.5, 0.5  # Permanent magnet weight set to 6.0g
+    5, 6.0, 50, 3, 0.3, 0.74, 0.071, 0.5, 0.5
 ])
 weight = weight_data.copy()
-weight[6:8] = 0.0
+# Retain per-cell weights for Tadiran TL-5930/S (92.5g) and Panasonic BK120AAHA01 (24.0g)
 
 bulk_prices = {
     0: [(1, None, 3.145)],
@@ -617,7 +617,7 @@ rows.append({
     "Expected Failures": 0.0,
     "Expected Repairs ($)": "$0.00",
     "Total Cash ($)": f"${shared_inspection_cost:,.2f}",
-    "Avg Load (mW)": f"${shared_power:.6f}",
+    "Avg Load (mW)": f"{shared_power:.6f}",
     "Weight (g)": "0.00"
 })
 
