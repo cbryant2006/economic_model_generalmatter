@@ -5,11 +5,11 @@ from itertools import product
 
 # --- Page Configuration ---
 st.set_page_config(
-    page_title="General Matter Economic Model",
+    page_title="GM Economic Model",
     layout="wide"
 )
 
-st.title("General Matter Economic Model")
+st.title("GM Economic Model")
 st.caption("Multi-year component selection, battery cell sizing, duty cycle power profiling, magnet holding mechanics, and FMEA optimization.")
 
 # --- Help Guide Expander ---
